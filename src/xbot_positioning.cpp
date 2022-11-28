@@ -170,6 +170,16 @@ void onImu(const sensor_msgs::Imu::ConstPtr &msg) {
     last_imu = *msg;
 }
 
+void onOdomIn(const nav_msgs::Odometry::ConstPtr &msg) {
+    if(!has_ticks) {
+        has_ticks = true;
+        return;
+    }
+
+    vx = msg->twist.twist.linear.x;
+
+}
+
 void onWheelTicks(const xbot_msgs::WheelTick::ConstPtr &msg) {
     if(!has_ticks) {
         last_ticks = *msg;
@@ -321,6 +331,7 @@ int main(int argc, char **argv) {
     paramNh.param("min_speed", min_speed, 0.01);
     paramNh.param("max_gps_accuracy", max_gps_accuracy, 0.1);
     paramNh.param("debug", publish_debug, false);
+    paramNh.param("use_odometry", odometry, false);
 
     if(gyro_offset != 0.0 && skip_gyro_calibration) {
         ROS_WARN_STREAM("Using gyro offset of: " << gyro_offset);
@@ -335,7 +346,13 @@ int main(int argc, char **argv) {
 
     ros::Subscriber imu_sub = paramNh.subscribe("imu_in", 10, onImu);
     ros::Subscriber pose_sub = paramNh.subscribe("xb_pose_in", 10, onPose);
-    ros::Subscriber wheel_tick_sub = paramNh.subscribe("wheel_ticks_in", 10, onWheelTicks);
+    if(odometry){
+        ros::Subscriber wheel_tick_sub = paramNh.subscribe("wheel_ticks_in", 10, onOdomIn);
+    }
+    else{
+        ros::Subscriber wheel_tick_sub = paramNh.subscribe("wheel_ticks_in", 10, onWheelTicks);
+    }
+
 
     ros::spin();
     return 0;
