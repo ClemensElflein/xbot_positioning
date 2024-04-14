@@ -67,13 +67,12 @@ nav_msgs::Odometry odometry;
 xbot_positioning::KalmanState state_msg;
 xbot_msgs::AbsolutePose xb_absolute_pose_msg;
 
-bool gps_enabled = true;
 int gps_outlier_count = 0;
 int valid_gps_samples = 0;
-int gps_message_throttle=1;
 
 ros::Time last_gps_time(0.0);
 
+ros::NodeHandle *paramNh;
 
 void onImu(const sensor_msgs::Imu::ConstPtr &msg) {
     if(!has_gyro) {
@@ -160,7 +159,7 @@ void onImu(const sensor_msgs::Imu::ConstPtr &msg) {
         xb_absolute_pose_msg.flags |= xbot_msgs::AbsolutePose::FLAG_SENSOR_FUSION_RECENT_ABSOLUTE_POSE;
     } else {
         // on GPS timeout, we set accuracy to 0.
-        xb_absolute_pose_msg.position_accuracy = 999;
+        xb_absolute_pose_msg.position_accuracy = 998;
     }
     // TODO: set real value
     xb_absolute_pose_msg.orientation_accuracy = 0.01;
@@ -199,11 +198,6 @@ void onWheelTicks(const xbot_msgs::WheelTick::ConstPtr &msg) {
     last_ticks = *msg;
 }
 
-bool setGpsState(xbot_positioning::GPSControlSrvRequest &req, xbot_positioning::GPSControlSrvResponse &res) {
-    gps_enabled = req.gps_enabled;
-    return true;
-}
-
 bool setPose(xbot_positioning::SetPoseSrvRequest &req, xbot_positioning::SetPoseSrvResponse &res) {
     tf2::Quaternion q;
     tf2::fromMsg(req.robot_pose.orientation, q);
@@ -218,10 +212,7 @@ bool setPose(xbot_positioning::SetPoseSrvRequest &req, xbot_positioning::SetPose
 }
 
 void onPose(const xbot_msgs::AbsolutePose::ConstPtr &msg) {
-    if(!gps_enabled) {        
-        ROS_INFO_STREAM_THROTTLE(gps_message_throttle, "dropping GPS update, since gps_enabled = false.");
-        return;
-    }
+
     // TODO fuse with high covariance?
     if((msg->flags & (xbot_msgs::AbsolutePose::FLAG_GPS_RTK_FIXED)) == 0) {
         ROS_INFO_STREAM_THROTTLE(1, "Dropped GPS update, since it's not RTK Fixed");
@@ -300,11 +291,27 @@ void onPose(const xbot_msgs::AbsolutePose::ConstPtr &msg) {
 
 }
 
+static void set_gps_state(bool enable) {
+  static bool gps_enabled=false;
+  static ros::Subscriber pose_sub;
+  if (enable!=gps_enabled) {
+    if ((gps_enabled=enable)) {
+      pose_sub=paramNh->subscribe("xb_pose_in", 10, onPose);
+    } else {
+      pose_sub.shutdown();
+    }
+  }
+}
+
+bool setGpsState(xbot_positioning::GPSControlSrvRequest &req, xbot_positioning::GPSControlSrvResponse &res) {
+  set_gps_state(req.gps_enabled);
+  return true;
+}
+
 int main(int argc, char **argv) {
     ros::init(argc, argv, "xbot_positioning");
 
     has_gps = false;
-    gps_enabled = true;
     vx = 0.0;
     has_gyro = false;
     has_ticks = false;
@@ -317,19 +324,19 @@ int main(int argc, char **argv) {
     antenna_offset_x = antenna_offset_y = 0;
 
     ros::NodeHandle n;
-    ros::NodeHandle paramNh("~");
+    paramNh=new ros::NodeHandle("~");
+
 
     ros::ServiceServer gps_service = n.advertiseService("xbot_positioning/set_gps_state", setGpsState);
     ros::ServiceServer pose_service = n.advertiseService("xbot_positioning/set_robot_pose", setPose);
 
-    paramNh.param("skip_gyro_calibration", skip_gyro_calibration, false);
-    paramNh.param("gyro_offset", gyro_offset, 0.0);
-    paramNh.param("min_speed", min_speed, 0.01);
-    paramNh.param("max_gps_accuracy", max_gps_accuracy, 0.1);
-    paramNh.param("debug", publish_debug, false);
-    paramNh.param("antenna_offset_x", antenna_offset_x, 0.0);
-    paramNh.param("antenna_offset_y", antenna_offset_y, 0.0);
-    paramNh.param("gps_message_throttle", gps_message_throttle, 1);    
+    paramNh->param("skip_gyro_calibration", skip_gyro_calibration, false);
+    paramNh->param("gyro_offset", gyro_offset, 0.0);
+    paramNh->param("min_speed", min_speed, 0.01);
+    paramNh->param("max_gps_accuracy", max_gps_accuracy, 0.1);
+    paramNh->param("debug", publish_debug, false);
+    paramNh->param("antenna_offset_x", antenna_offset_x, 0.0);
+    paramNh->param("antenna_offset_y", antenna_offset_y, 0.0);
 
     core.setAntennaOffset(antenna_offset_x, antenna_offset_y);
 
@@ -339,17 +346,18 @@ int main(int argc, char **argv) {
         ROS_WARN_STREAM("Using gyro offset of: " << gyro_offset);
     }
 
-    odometry_pub = paramNh.advertise<nav_msgs::Odometry>("odom_out", 50);
-    xbot_absolute_pose_pub = paramNh.advertise<xbot_msgs::AbsolutePose>("xb_pose_out", 50);
+    odometry_pub = paramNh->advertise<nav_msgs::Odometry>("odom_out", 50);
+    xbot_absolute_pose_pub = paramNh->advertise<xbot_msgs::AbsolutePose>("xb_pose_out", 50);
     if(publish_debug) {
-        dbg_expected_motion_vector = paramNh.advertise<geometry_msgs::Vector3>("debug_expected_motion_vector", 50);
-        kalman_state = paramNh.advertise<xbot_positioning::KalmanState>("kalman_state", 50);
+        dbg_expected_motion_vector = paramNh->advertise<geometry_msgs::Vector3>("debug_expected_motion_vector", 50);
+        kalman_state = paramNh->advertise<xbot_positioning::KalmanState>("kalman_state", 50);
     }
 
-    ros::Subscriber imu_sub = paramNh.subscribe("imu_in", 10, onImu);
-    ros::Subscriber pose_sub = paramNh.subscribe("xb_pose_in", 10, onPose);
-    ros::Subscriber wheel_tick_sub = paramNh.subscribe("wheel_ticks_in", 10, onWheelTicks);
+    ros::Subscriber imu_sub = paramNh->subscribe("imu_in", 10, onImu);
+    ros::Subscriber wheel_tick_sub = paramNh->subscribe("wheel_ticks_in", 10, onWheelTicks);
 
+    set_gps_state(true);
+    
     ros::spin();
     return 0;
 }
