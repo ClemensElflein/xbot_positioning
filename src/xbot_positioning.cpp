@@ -35,6 +35,9 @@ xbot::positioning::xbot_positioning_core core{};
 // True, if we don't want to do gyro calibration on launch
 bool skip_gyro_calibration;
 
+// True, if we require RTK fix for GPS updates
+bool rtk_fix_required;
+
 // True, if we have wheel ticks (i.e. last_ticks is valid)
 bool has_ticks;
 xbot_msgs::WheelTick last_ticks;
@@ -223,7 +226,7 @@ void onPose(const xbot_msgs::AbsolutePose::ConstPtr &msg) {
         return;
     }
     // TODO fuse with high covariance?
-    if((msg->flags & (xbot_msgs::AbsolutePose::FLAG_GPS_RTK_FIXED)) == 0) {
+    if(rtk_fix_required && ((msg->flags & (xbot_msgs::AbsolutePose::FLAG_GPS_RTK_FIXED)) == 0)) {
         ROS_INFO_STREAM_THROTTLE(1, "Dropped GPS update, since it's not RTK Fixed");
         return;
     }
@@ -326,6 +329,7 @@ int main(int argc, char **argv) {
     paramNh.param("gyro_offset", gyro_offset, 0.0);
     paramNh.param("min_speed", min_speed, 0.01);
     paramNh.param("max_gps_accuracy", max_gps_accuracy, 0.1);
+    paramNh.param("rtk_fix_required", rtk_fix_required, true);
     paramNh.param("debug", publish_debug, false);
     paramNh.param("antenna_offset_x", antenna_offset_x, 0.0);
     paramNh.param("antenna_offset_y", antenna_offset_y, 0.0);
