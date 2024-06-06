@@ -196,6 +196,13 @@ void onWheelTicks(const xbot_msgs::WheelTick::ConstPtr &msg) {
     double d_ticks = (d_wheel_l + d_wheel_r) / 2.0;
     vx = d_ticks / dt;
 
+    //Ignore implausible wheel tick calculation
+    if(abs(vx) > 0.6) {
+            ROS_WARN_STREAM("got vx > 0.6 (" << vx << ") - dropping measurement");
+            vx = 0.0;
+            return;
+        }
+    
     last_ticks = *msg;
 }
 
