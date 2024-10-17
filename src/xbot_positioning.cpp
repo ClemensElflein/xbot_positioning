@@ -208,7 +208,7 @@ void onWheelTicks(const xbot_msgs::WheelTick::ConstPtr &msg) {
         gyro_offset = gyro_offset_s / gyro_offset_samples;
         /* Calculate deviation */
         double deviation = sqrt((gyro_offset_s2-gyro_offset_s*gyro_offset_s/gyro_offset_samples)/(gyro_offset_samples-1));
-        frozen_angular_max_velocity=deviation*5;
+        frozen_angular_max_velocity=fmax(deviation*5,0.05); // Tolerance from deviation (at least one revolution in two minutes)
         /* Reset statistic */
         gyro_offset_s = gyro_offset_s2 = gyro_offset_samples = 0;
 
